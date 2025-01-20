@@ -1,0 +1,335 @@
+=== ./renderer/renderer.js ===
+document.addEventListener('DOMContentLoaded', () => {
+    const startButton = document.getElementById('startEmulator');
+    const stopButton = document.getElementById('stopEmulator');
+    const statusDiv = document.getElementById('status');
+
+    startButton.addEventListener('click', async () => {
+        statusDiv.textContent = 'Starting emulator...';
+        startButton.disabled = true;
+        
+        try {
+            const result = await window.electronAPI.startEmulator();
+            if (result.success) {
+                statusDiv.textContent = 'Emulator started successfully!';
+                stopButton.disabled = false;
+            } else {
+                statusDiv.textContent = 'Failed to start emulator: ' + (result.error || 'Unknown error');
+                startButton.disabled = false;
+            }
+        } catch (error) {
+            statusDiv.textContent = 'Error starting emulator: ' + error.message;
+            startButton.disabled = false;
+        }
+    });
+
+    stopButton.addEventListener('click', async () => {
+        statusDiv.textContent = 'Stopping emulator...';
+        stopButton.disabled = true;
+        
+        try {
+            const result = await window.electronAPI.stopEmulator();
+            if (result.success) {
+                statusDiv.textContent = 'Emulator stopped successfully!';
+                startButton.disabled = false;
+            } else {
+                statusDiv.textContent = 'Failed to stop emulator: ' + (result.error || 'Unknown error');
+                stopButton.disabled = false;
+            }
+        } catch (error) {
+            statusDiv.textContent = 'Error stopping emulator: ' + error.message;
+            stopButton.disabled = false;
+        }
+    });
+
+    // Check initial emulator status
+    checkEmulatorStatus();
+});
+
+async function checkEmulatorStatus() {
+    const startButton = document.getElementById('startEmulator');
+    const stopButton = document.getElementById('stopEmulator');
+    const statusDiv = document.getElementById('status');
+
+    try {
+        const result = await window.electronAPI.checkEmulatorStatus();
+        if (result.isRunning) {
+            statusDiv.textContent = 'Emulator is running';
+            startButton.disabled = true;
+            stopButton.disabled = false;
+        } else {
+            statusDiv.textContent = 'Emulator is not running';
+            startButton.disabled = false;
+            stopButton.disabled = true;
+        }
+    } catch (error) {
+        statusDiv.textContent = 'Error checking emulator status: ' + error.message;
+    }
+}
+
+
+=== ./renderer/index.html ===
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Empath</title>
+    <meta charset="UTF-8">
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        button {
+            padding: 10px 20px;
+            font-size: 16px;
+            cursor: pointer;
+            margin-right: 10px;
+        }
+        button:disabled {
+            cursor: not-allowed;
+            opacity: 0.5;
+        }
+        #status {
+            margin-top: 20px;
+            padding: 10px;
+            background-color: #fff;
+            border-radius: 4px;
+        }
+    </style>
+</head>
+<body>
+    <h1>Welcome to Empath</h1>
+    <p>Your virtual device manager is starting up...</p>
+    <div>
+        <button id="startEmulator">Start Android Emulator</button>
+        <button id="stopEmulator" disabled>Stop Android Emulator</button>
+    </div>
+    <div id="status">Checking emulator status...</div>
+    <script src="renderer.js"></script>
+</body>
+</html>
+
+
+=== ./main/main.ts ===
+import { app, BrowserWindow, ipcMain } from 'electron';
+import * as path from 'path';
+import { AndroidEmulatorService } from './services/android-emulator';
+
+let mainWindow: BrowserWindow;
+const emulatorService = new AndroidEmulatorService();
+
+function createWindow() {
+    console.log('Creating window...');
+    
+    mainWindow = new BrowserWindow({
+        width: 1200,
+        height: 800,
+        webPreferences: {
+            contextIsolation: true,
+            nodeIntegration: true,
+            preload: path.join(__dirname, 'preload.js')
+        }
+    });
+
+    const htmlPath = path.join(__dirname, '..', 'renderer', 'index.html');
+    console.log('Attempting to load HTML from:', htmlPath);
+    
+    mainWindow.loadFile(htmlPath).catch(err => {
+        console.error('Failed to load HTML:', err);
+    });
+
+    mainWindow.webContents.openDevTools();  // This will help us debug
+
+    // Log when window is ready
+    mainWindow.webContents.on('did-finish-load', () => {
+        console.log('Window loaded successfully');
+    });
+}
+
+app.whenReady().then(() => {
+    console.log('Electron app is ready');
+    createWindow();
+
+    // Handle IPC messages
+    ipcMain.handle('start-emulator', async () => {
+        try {
+            console.log('Received start-emulator request');
+            const success = await emulatorService.startEmulator();
+            return { success };
+        } catch (err) {
+            console.error('Error starting emulator:', err);
+            return { success: false, error: err instanceof Error ? err.message : String(err) };
+        }
+    });
+
+    ipcMain.handle('stop-emulator', async () => {
+        try {
+            console.log('Received stop-emulator request');
+            await emulatorService.stopEmulator();
+            return { success: true };
+        } catch (err) {
+            console.error('Error stopping emulator:', err);
+            return { success: false, error: err instanceof Error ? err.message : String(err) };
+        }
+    });
+
+    ipcMain.handle('check-emulator-status', async () => {
+        try {
+            console.log('Checking emulator status');
+            const isRunning = await emulatorService.isEmulatorRunning();
+            return { isRunning };
+        } catch (err) {
+            console.error('Error checking emulator status:', err);
+            return { isRunning: false, error: err instanceof Error ? err.message : String(err) };
+        }
+    });
+
+    app.on('activate', function () {
+        if (BrowserWindow.getAllWindows().length === 0) createWindow();
+    });
+});
+
+app.on('window-all-closed', function () {
+    if (process.platform !== 'darwin') app.quit();
+});
+
+
+=== ./main/config/android-config.ts ===
+export const androidConfig = {
+    sdkPath: '/Users/bkessler/Library/Android/sdk',
+    emulatorPath: '/Users/bkessler/Library/Android/sdk/emulator/emulator',
+    adbPath: '/Users/bkessler/Library/Android/sdk/platform-tools/adb',
+    defaultDevice: 'Pixel_9_Pro_API_35'
+};
+
+
+=== ./main/preload.ts ===
+import { contextBridge, ipcRenderer } from 'electron';
+
+contextBridge.exposeInMainWorld('electronAPI', {
+    startEmulator: () => ipcRenderer.invoke('start-emulator'),
+    stopEmulator: () => ipcRenderer.invoke('stop-emulator'),
+    checkEmulatorStatus: () => ipcRenderer.invoke('check-emulator-status')
+});
+
+
+=== ./main/services/android-emulator.ts ===
+import { spawn, ChildProcess } from 'child_process';
+import { androidConfig } from '../config/android-config';
+
+export class AndroidEmulatorService {
+    private emulatorProcess: ChildProcess | null = null;
+    private isStarting: boolean = false;
+
+    constructor() {}
+
+    async startEmulator(deviceName: string = androidConfig.defaultDevice): Promise<boolean> {
+        if (this.isStarting) {
+            console.log('Emulator is already starting...');
+            return false;
+        }
+
+        this.isStarting = true;
+
+        try {
+            console.log(`Starting emulator: ${deviceName}`);
+            
+            // Start the emulator process
+            this.emulatorProcess = spawn(androidConfig.emulatorPath, [
+                '-avd', deviceName,
+                '-gpu', 'host',
+                '-no-boot-anim'  // Speeds up boot time
+            ]);
+
+            // Handle emulator output
+            this.emulatorProcess.stdout?.on('data', (data) => {
+                console.log(`Emulator stdout: ${data}`);
+            });
+
+            this.emulatorProcess.stderr?.on('data', (data) => {
+                console.error(`Emulator stderr: ${data}`);
+            });
+
+            // Wait for boot completion
+            const isBooted = await this.waitForBoot();
+            this.isStarting = false;
+            return isBooted;
+
+        } catch (error) {
+            console.error('Failed to start emulator:', error);
+            this.isStarting = false;
+            return false;
+        }
+    }
+
+    private async waitForBoot(): Promise<boolean> {
+        return new Promise((resolve) => {
+            let bootCheckInterval = setInterval(async () => {
+                try {
+                    const result = await this.executeAdbCommand(['shell', 'getprop', 'sys.boot_completed']);
+                    if (result.trim() === '1') {
+                        clearInterval(bootCheckInterval);
+                        console.log('Emulator boot completed');
+                        resolve(true);
+                    }
+                } catch (error) {
+                    console.error('Boot check failed:', error);
+                }
+            }, 1000);
+
+            // Timeout after 2 minutes
+            setTimeout(() => {
+                clearInterval(bootCheckInterval);
+                console.error('Emulator boot timeout');
+                resolve(false);
+            }, 120000);
+        });
+    }
+
+    async executeAdbCommand(args: string[]): Promise<string> {
+        return new Promise((resolve, reject) => {
+            const process = spawn(androidConfig.adbPath, args);
+            let output = '';
+
+            process.stdout.on('data', (data) => {
+                output += data.toString();
+            });
+
+            process.on('close', (code) => {
+                if (code === 0) {
+                    resolve(output);
+                } else {
+                    reject(new Error(`ADB command failed with code ${code}`));
+                }
+            });
+        });
+    }
+
+    async stopEmulator(): Promise<void> {
+        if (this.emulatorProcess) {
+            console.log('Stopping emulator...');
+            this.emulatorProcess.kill();
+            this.emulatorProcess = null;
+            
+            // Force-stop any remaining emulator processes
+            try {
+                await this.executeAdbCommand(['emu', 'kill']);
+            } catch (error) {
+                console.error('Error stopping emulator:', error);
+            }
+        }
+    }
+
+    async isEmulatorRunning(): Promise<boolean> {
+        try {
+            const devices = await this.executeAdbCommand(['devices']);
+            return devices.includes('emulator');
+        } catch (error) {
+            console.error('Error checking emulator status:', error);
+            return false;
+        }
+    }
+}
+
+
