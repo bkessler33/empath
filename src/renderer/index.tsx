@@ -1,22 +1,18 @@
 import React from 'react';
 import { createRoot } from 'react-dom/client';
-import { DeviceFrame } from './components/DeviceFrame';
-import './styles/global.css';
+import DeviceFrame from './components/DeviceFrame/index'; 
+import './global.css';
 
-const App = () => {
-  return (
-    <div className="min-h-screen bg-gray-100 p-8">
-      <DeviceFrame />
-    </div>
-  );
-};
+const container = document.getElementById('root');
+if (!container) {
+    throw new Error('Failed to find the root element');
+}
 
-// Wait for the DOM to be ready
-document.addEventListener('DOMContentLoaded', () => {
-  const container = document.getElementById('root');
-  if (!container) {
-    throw new Error('Root element not found');
-  }
-  const root = createRoot(container);
-  root.render(<App />);
-});
+const root = createRoot(container);
+root.render(
+    <React.StrictMode>
+        <div className="min-h-screen bg-transparent">
+            <DeviceFrame />
+        </div>
+    </React.StrictMode>
+);

@@ -1,13 +1,21 @@
-export const devices = {
+interface DeviceDimensions {
+    width: number;
+    height: number;
+  }
+  
+  interface Device {
+    name: string;
+    os: string;
+    dimensions: DeviceDimensions;
+  }
+  
+  export const devices = {
     pixel7Pro: {
-      name: 'Pixel 7 Pro',
-      os: 'Android 14.0',
+      name: "Pixel 7 Pro",
+      os: "Android 13",
       dimensions: {
         width: 412,
-        height: 915,
-        borderRadius: 40
+        height: 915
       }
     }
-  };
-  
-  export type DeviceConfig = typeof devices.pixel7Pro;
+  } as const;

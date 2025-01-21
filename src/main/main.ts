@@ -1,6 +1,6 @@
 process.env.NAME = "Empath";
 
-import { app, BrowserWindow, ipcMain } from 'electron';
+import { app, BrowserWindow, ipcMain, screen } from 'electron';  // Add screen to imports
 import * as path from 'path';
 import { AndroidEmulatorService } from './services/android-emulator';
 import { MenuService } from './services/menu';
@@ -18,35 +18,62 @@ let menuService: MenuService;
 app.name = 'Empath';
 
 function createWindow() {
-    console.log('Creating window...');
-    
+    const screenBounds = screen.getPrimaryDisplay().workAreaSize;
+    const deviceWidth = 412;
+    const toolbarHeight = 60;
+    const windowX = (screenBounds.width - deviceWidth) / 2;
+    const windowY = screenBounds.height * 0.2;
+
     mainWindow = new BrowserWindow({
-        width: 1200,
-        height: 800,
+        width: deviceWidth,
+        height: toolbarHeight,
+        x: windowX,
+        y: windowY,
+        transparent: true,
+        frame: false,
+        resizable: false,
+        maximizable: false,
+        minimizable: true,
+        hasShadow: false,
         webPreferences: {
             contextIsolation: true,
             nodeIntegration: true,
             preload: path.join(__dirname, 'preload.js')
+        },
+        backgroundColor: '#00000000',
+        titleBarStyle: 'hiddenInset',
+        vibrancy: 'under-window'
+    });
+
+    // Remove the menu bar and default toolbar
+    mainWindow.setMenuBarVisibility(false);
+    
+    // Track window movement to sync emulator window
+    mainWindow.on('move', () => {
+        const [x, y] = mainWindow.getPosition();
+        emulatorService.positionEmulatorWindow(x, y + toolbarHeight + 10); // Added 10px gap
+    });
+
+    // Handle window state changes
+    mainWindow.on('minimize', () => {
+        const emulatorWindow = emulatorService.findEmulatorWindow();
+        if (emulatorWindow) {
+            emulatorWindow.minimize();
         }
     });
 
-    // Update the HTML path to point to the renderer directory
+    mainWindow.on('restore', () => {
+        const emulatorWindow = emulatorService.findEmulatorWindow();
+        if (emulatorWindow) {
+            emulatorWindow.restore();
+            // Re-sync position after restore
+            const [x, y] = mainWindow.getPosition();
+            emulatorService.positionEmulatorWindow(x, y + toolbarHeight + 10);
+        }
+    });
+
     const htmlPath = path.join(__dirname, '..', 'renderer', 'index.html');
-    console.log('Attempting to load HTML from:', htmlPath);
-    
-    mainWindow.loadFile(htmlPath).catch(err => {
-        console.error('Failed to load HTML:', err);
-    });
-
-    // Initialize menu service after window creation with all required services
-    menuService = new MenuService(apkManager, mainWindow, emulatorService);
-
-    mainWindow.webContents.openDevTools();  // This will help us debug
-
-    // Log when window is ready
-    mainWindow.webContents.on('did-finish-load', () => {
-        console.log('Window loaded successfully');
-    });
+    mainWindow.loadFile(htmlPath);
 }
 
 app.whenReady().then(() => {
@@ -82,9 +109,14 @@ app.whenReady().then(() => {
     ipcMain.handle('start-emulator', async () => {
         try {
             console.log('Received start-emulator request');
-            // Removed: const currentScale = store.get('emulator').scale;
-            // Changed to pass undefined instead of currentScale
             const success = await emulatorService.startEmulator();
+            
+            if (success) {
+                // Position the emulator window after startup
+                const [x, y] = mainWindow.getPosition();
+                await emulatorService.positionEmulatorWindow(x, y);
+            }
+            
             return { success };
         } catch (err) {
             console.error('Error starting emulator:', err);

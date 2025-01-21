@@ -1,6 +1,6 @@
 import { spawn, ChildProcess } from 'child_process';
 import { androidConfig } from '../config/android-config';
-import { app } from 'electron';
+import { app, BrowserWindow } from 'electron';
 import path from 'path';
 import { promises as fs } from 'fs';
 
@@ -23,29 +23,35 @@ export class AndroidEmulatorService {
         this.isStarting = true;
     
         try {
+            // Start emulator with arguments to remove window decorations
             const emulatorArgs = [
                 '-avd', deviceName,
                 '-gpu', 'host',
-                '-no-boot-anim'
+                '-no-boot-anim',
+                '-no-title',           // Remove title bar
+                '-no-frame',           // Remove window frame
+                '-no-skin',            // Remove default emulator skin
+                '-skindir', 'none'     // Disable skin directory
             ];
-
+    
             console.log('Starting emulator with args:', emulatorArgs);
             this.emulatorProcess = spawn(androidConfig.emulatorPath, emulatorArgs);
-
-            // Handle emulator output
-            this.emulatorProcess.stdout?.on('data', (data) => {
-                console.log(`Emulator stdout: ${data}`);
-            });
-
-            this.emulatorProcess.stderr?.on('data', (data) => {
-                console.error(`Emulator stderr: ${data}`);
-            });
-
-            // Wait for boot completion
+    
+            // Wait for emulator to start, then set its window properties
             const isBooted = await this.waitForBoot();
+            if (isBooted) {
+                const emulatorWindow = this.findEmulatorWindow();
+                if (emulatorWindow) {
+                    // Make emulator window borderless and the right size
+                    emulatorWindow.setWindowButtonVisibility(false);
+                    emulatorWindow.setContentSize(1280, 2800); // Adjust height as needed
+                    emulatorWindow.setResizable(false);
+                }
+            }
+    
             this.isStarting = false;
             return isBooted;
-
+    
         } catch (error) {
             console.error('Failed to start emulator:', error);
             this.isStarting = false;
@@ -95,6 +101,25 @@ export class AndroidEmulatorService {
                 }
             });
         });
+    }
+
+    findEmulatorWindow(): BrowserWindow | null {
+        const allWindows = BrowserWindow.getAllWindows();
+        const emulatorWindow = allWindows.find(win => {
+            const title = win.getTitle();
+            return title.includes('Android Emulator') || title.includes('Pixel');
+        });
+        return emulatorWindow || null;
+    }
+
+    async positionEmulatorWindow(parentX: number, parentY: number): Promise<void> {
+        const emulatorWindow = this.findEmulatorWindow();
+        if (emulatorWindow) {
+            // Position window and ensure it's borderless
+            emulatorWindow.setPosition(parentX, parentY);
+            emulatorWindow.setWindowButtonVisibility(false);
+            emulatorWindow.setAlwaysOnTop(false); // Ensure it stays under the toolbar
+        }
     }
 
     async stopEmulator(): Promise<void> {

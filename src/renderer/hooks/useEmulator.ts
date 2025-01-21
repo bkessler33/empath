@@ -1,83 +1,94 @@
-import { useState, useEffect, useCallback } from 'react';
+// src/renderer/hooks/useEmulator.ts
+
+import { useState, useEffect } from 'react';
+
+declare global {
+  interface ElectronAPI {
+    checkEmulatorStatus: () => Promise<{ isRunning: boolean }>;
+    startEmulator: () => Promise<{ success: boolean; error?: string }>;
+    stopEmulator: () => Promise<{ success: boolean; error?: string }>;
+    rotateDevice: () => Promise<{ 
+      success: boolean; 
+      orientation: 'portrait' | 'landscape';  // Changed from optional to required
+      error?: string;
+    }>;
+  }
+}
 
 export const useEmulator = () => {
   const [isRunning, setIsRunning] = useState(false);
-  const [isRecording, setIsRecording] = useState(false);
   const [orientation, setOrientation] = useState<'portrait' | 'landscape'>('portrait');
   const [error, setError] = useState<string | null>(null);
 
-  const checkStatus = useCallback(async () => {
+  useEffect(() => {
+    checkEmulatorStatus();
+  }, []);
+
+  const checkEmulatorStatus = async () => {
     try {
       const result = await window.electronAPI.checkEmulatorStatus();
       setIsRunning(result.isRunning);
-      setError(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to check emulator status');
     }
-  }, []);
-
-  useEffect(() => {
-    checkStatus();
-    const interval = setInterval(checkStatus, 5000);
-    return () => clearInterval(interval);
-  }, [checkStatus]);
+  };
 
   const startEmulator = async () => {
     try {
+      setError(null);
       const result = await window.electronAPI.startEmulator();
       if (result.success) {
         setIsRunning(true);
-        setError(null);
-      } else {
-        setError(result.error || 'Failed to start emulator');
+      } else if (result.error) {
+        setError(result.error);
       }
-      return result;
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to start emulator');
-      return { success: false, error: err instanceof Error ? err.message : 'Unknown error' };
     }
   };
 
   const stopEmulator = async () => {
     try {
+      setError(null);
       const result = await window.electronAPI.stopEmulator();
       if (result.success) {
         setIsRunning(false);
-        setError(null);
-      } else {
-        setError(result.error || 'Failed to stop emulator');
+      } else if (result.error) {
+        setError(result.error);
       }
-      return result;
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to stop emulator');
-      return { success: false, error: err instanceof Error ? err.message : 'Unknown error' };
     }
   };
 
   const rotateDevice = async () => {
     try {
+      setError(null);
       const result = await window.electronAPI.rotateDevice();
       if (result.success) {
         setOrientation(result.orientation);
-        setError(null);
-      } else {
-        setError(result.error || 'Failed to rotate device');
+      }
+      if (result.error) {
+        setError(result.error);
       }
       return result;
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to rotate device');
-      return { success: false, error: err instanceof Error ? err.message : 'Unknown error' };
+      const error = err instanceof Error ? err.message : 'Failed to rotate device';
+      setError(error);
+      return { 
+        success: false, 
+        orientation: orientation, // Include current orientation in error case
+        error 
+      };
     }
   };
 
   return {
     isRunning,
-    isRecording,
     orientation,
     error,
     startEmulator,
     stopEmulator,
-    rotateDevice,
-    checkStatus,
+    rotateDevice
   };
-};
+}
