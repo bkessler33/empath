@@ -1,14 +1,9 @@
-process.env.NAME = "Empath";
-
 import { app, BrowserWindow, ipcMain, screen } from 'electron';  // Add screen to imports
 import * as path from 'path';
 import { AndroidEmulatorService } from './services/android-emulator';
 import { MenuService } from './services/menu';
 import { ApkManagerService } from './services/apk-manager';
 import { store } from './config/store';
-
-const name = 'Empath';
-app.setName(name);
 
 let mainWindow: BrowserWindow;
 const emulatorService = new AndroidEmulatorService();
@@ -30,7 +25,7 @@ function createWindow() {
         x: windowX,
         y: windowY,
         transparent: true,
-        frame: false,
+        frame: true,
         resizable: false,
         maximizable: false,
         minimizable: true,
@@ -41,13 +36,18 @@ function createWindow() {
             preload: path.join(__dirname, 'preload.js')
         },
         backgroundColor: '#00000000',
-        titleBarStyle: 'hiddenInset',
+        titleBarStyle: 'hidden',
         vibrancy: 'under-window'
     });
 
-    // Remove the menu bar and default toolbar
-    mainWindow.setMenuBarVisibility(false);
-    
+    // Right Click Changes
+    mainWindow.webContents.on('before-input-event', (event, input) => {
+        // Command+Option+I (Mac) or Control+Shift+I (Windows/Linux)
+        if ((input.control || input.meta) && input.shift && input.key.toLowerCase() === 'i') {
+            mainWindow.webContents.openDevTools();
+        }
+    });
+
     // Track window movement to sync emulator window
     mainWindow.on('move', () => {
         const [x, y] = mainWindow.getPosition();
@@ -79,6 +79,7 @@ function createWindow() {
 app.whenReady().then(() => {
     console.log('Electron app is ready');
     createWindow();
+    menuService = new MenuService(apkManager, mainWindow, emulatorService);
 
     // APK Management IPC handlers
     ipcMain.handle('get-app-info', async () => {
@@ -194,14 +195,15 @@ app.whenReady().then(() => {
     // New device control IPC handlers
     ipcMain.handle('device:goHome', async () => {
         try {
-            console.log('Received go-home request');
-            await emulatorService.executeAdbCommand(['shell', 'input', 'keyevent', 'KEYCODE_HOME']);
-            return { success: true };
+          console.log('Received goHome request in main process');
+          await emulatorService.executeAdbCommand(['shell', 'input', 'keyevent', 'KEYCODE_HOME']);
+          console.log('Home command executed successfully');
+          return { success: true };
         } catch (err) {
-            console.error('Error executing home command:', err);
-            return { success: false, error: err instanceof Error ? err.message : String(err) };
+          console.error('Error executing home command:', err);
+          return { success: false, error: err instanceof Error ? err.message : 'Failed to execute home command' };
         }
-    });
+      });
 
     ipcMain.handle('device:goBack', async () => {
         try {

@@ -1,4 +1,3 @@
-//Toolbar.tsx
 import React from 'react';
 import { Home, ArrowLeft, RotateCcw, Camera, Circle, Share2 } from 'lucide-react';
 
@@ -7,11 +6,10 @@ interface DeviceToolbarProps {
   osVersion: string;
   isRunning: boolean;
   orientation: 'portrait' | 'landscape';
-  onRotate: () => Promise<{ 
-    success: boolean; 
-    orientation: 'portrait' | 'landscape'; 
-    error?: string; 
-  }>;
+  onRotate: () => Promise<{ success: boolean; orientation: 'portrait' | 'landscape'; error?: string; }>;
+  onGoHome: () => Promise<{ success: boolean; error?: string }>;
+  onGoBack: () => Promise<{ success: boolean; error?: string }>;
+  onTakeScreenshot: () => Promise<{ success: boolean; error?: string }>;
 }
 
 export const DeviceToolbar: React.FC<DeviceToolbarProps> = ({
@@ -19,19 +17,20 @@ export const DeviceToolbar: React.FC<DeviceToolbarProps> = ({
   osVersion,
   isRunning,
   orientation,
-  onRotate
+  onRotate,
+  onGoHome,
+  onGoBack,
+  onTakeScreenshot
 }) => {
-  const handleAction = async (action: () => Promise<any>) => {
-    try {
-      await action();
-    } catch (error) {
-      console.error('Action failed:', error);
-    }
-  };
+  console.log('Toolbar rendered, isRunning:', isRunning);
 
   return (
-    <div className="absolute inset-0 bg-[#2D2D2D]/80 backdrop-blur-xl window-draggable prevent-select">
-      <div className="h-full w-full flex items-center px-3">
+    <div 
+      onClick={() => console.log('Outer div clicked')}
+      className="absolute inset-0 flex items-center bg-[#2D2D2D]/80 backdrop-blur-xl"
+    >
+      {/* Left side wrapper - make the entire left side draggable */}
+      <div className="flex-grow flex items-center window-draggable">
         {/* Spacer for traffic lights */}
         <div className="w-[70px]" />
         
@@ -40,66 +39,69 @@ export const DeviceToolbar: React.FC<DeviceToolbarProps> = ({
           <span className="text-sm font-medium text-white">{deviceName}</span>
           <span className="text-xs text-gray-400">{osVersion}</span>
         </div>
-        
-        {/* Spacer to push controls to right */}
-        <div className="flex-grow" />
-        
-        {/* Controls */}
-        <div className="flex items-center space-x-1.5 window-no-drag text-white">
-          <button 
-            disabled={!isRunning} 
-            onClick={() => handleAction(window.electronAPI.goHome)}
-            className="p-1.5 hover:bg-white/10 rounded-md disabled:opacity-50 
-                     transition-colors duration-150 ease-in-out"
-            title="Home"
-          >
-            <Home size={16} />
-          </button>
-          <button 
-            disabled={!isRunning} 
-            onClick={() => handleAction(window.electronAPI.goBack)}
-            className="p-1.5 hover:bg-white/10 rounded-md disabled:opacity-50 
-                     transition-colors duration-150 ease-in-out"
-            title="Back"
-          >
-            <ArrowLeft size={16} />
-          </button>
-          <button 
-            disabled={!isRunning} 
-            onClick={() => handleAction(onRotate)}
-            className="p-1.5 hover:bg-white/10 rounded-md disabled:opacity-50 
-                     transition-colors duration-150 ease-in-out"
-            title="Rotate device"
-          >
-            <RotateCcw size={16} />
-          </button>
-          <button 
-            disabled={!isRunning} 
-            onClick={() => handleAction(window.electronAPI.takeScreenshot)}
-            className="p-1.5 hover:bg-white/10 rounded-md disabled:opacity-50 
-                     transition-colors duration-150 ease-in-out"
-            title="Take screenshot"
-          >
-            <Camera size={16} />
-          </button>
-          <button 
-            disabled={!isRunning} 
-            onClick={() => handleAction(window.electronAPI.startRecording)}
-            className="p-1.5 hover:bg-white/10 rounded-md disabled:opacity-50 
-                     transition-colors duration-150 ease-in-out"
-            title="Start recording"
-          >
-            <Circle size={16} className="text-red-500" />
-          </button>
-          <button 
-            disabled={!isRunning} 
-            className="p-1.5 hover:bg-white/10 rounded-md disabled:opacity-50 
-                     transition-colors duration-150 ease-in-out"
-            title="Share"
-          >
-            <Share2 size={16} />
-          </button>
-        </div>
+      </div>
+      
+      {/* Controls - no draggable class */}
+      <div className="flex items-center space-x-1.5 px-3">
+        <button 
+          onClick={() => {
+            console.log('Home clicked');
+            onGoHome();
+          }}
+          className="p-1.5 text-white hover:bg-white/10 rounded-md"
+        >
+          <Home size={16} />
+        </button>
+
+        <button 
+          onClick={() => {
+            console.log('Back clicked');
+            onGoBack();
+          }}
+          className="p-1.5 text-white hover:bg-white/10 rounded-md"
+        >
+          <ArrowLeft size={16} />
+        </button>
+
+        <button 
+          onClick={() => {
+            console.log('Rotate clicked');
+            onRotate();
+          }}
+          className="p-1.5 text-white hover:bg-white/10 rounded-md"
+        >
+          <RotateCcw size={16} />
+        </button>
+
+        <button 
+          onClick={() => {
+            console.log('Screenshot clicked');
+            onTakeScreenshot();
+          }}
+          className="p-1.5 text-white hover:bg-white/10 rounded-md"
+        >
+          <Camera size={16} />
+        </button>
+
+        <button 
+          onClick={() => {
+            console.log('Record clicked');
+            // Recording functionality to be implemented
+          }}
+          className="p-1.5 text-white hover:bg-white/10 rounded-md"
+        >
+          <Circle size={16} className="text-red-500" />
+        </button>
+
+        <button 
+          onClick={() => {
+            console.log('Share clicked');
+            // Share functionality to be implemented
+          }}
+          className="p-1.5 text-white hover:bg-white/10 rounded-md"
+        >
+          <Share2 size={16} />
+        </button>
       </div>
     </div>
   );

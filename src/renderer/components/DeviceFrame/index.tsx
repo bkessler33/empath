@@ -1,5 +1,4 @@
-// DeviceFrame/index.tsx
-import React from 'react';
+import React, { useEffect } from 'react';
 import { DeviceToolbar } from './Toolbar';
 import { devices } from '../../config/devices';
 import { useEmulator } from '../../hooks/useEmulator';
@@ -11,13 +10,18 @@ interface DeviceFrameProps {
 const DeviceFrame: React.FC<DeviceFrameProps> = ({ 
   device = devices.pixel7Pro 
 }) => {
+  console.log('DeviceFrame rendered');  // Add this line
+
   const { 
     isRunning, 
     orientation, 
     error,
     startEmulator,
     stopEmulator,
-    rotateDevice 
+    rotateDevice,
+    goHome,
+    goBack,
+    takeScreenshot
   } = useEmulator();
 
   return (
@@ -28,6 +32,9 @@ const DeviceFrame: React.FC<DeviceFrameProps> = ({
         isRunning={isRunning}
         orientation={orientation}
         onRotate={rotateDevice}
+        onGoHome={goHome}
+        onGoBack={goBack}
+        onTakeScreenshot={takeScreenshot}
       />
       
       {error && (

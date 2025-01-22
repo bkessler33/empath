@@ -90,7 +90,57 @@ export class MenuService {
             },
             {
                 label: 'Devices',
-                submenu: []
+                submenu: [
+                    {
+                        label: 'New device',
+                        submenu: [
+                            {
+                                label: '🤖 Google Pixel 9 Pro',  // User-friendly display name
+                                click: async () => {
+                                    try {
+                                        this.mainWindow.webContents.send('select-device', 'pixel9pro');
+                                        
+                                        // Show loading dialog
+                                        dialog.showMessageBox(this.mainWindow, {
+                                            type: 'info',
+                                            title: 'Starting Emulator',
+                                            message: 'Please wait while the emulator starts...',
+                                            buttons: ['OK']
+                                        });
+            
+                                        // Use the technical AVD name internally
+                                        const result = await this.emulatorService.startEmulator('Pixel_9_Pro_API_35');
+                                        
+                                        if (!result) {
+                                            dialog.showMessageBox(this.mainWindow, {
+                                                type: 'error',
+                                                title: 'Emulator Error',
+                                                message: 'Failed to start the emulator. Please check your Android Studio installation and AVD setup.'
+                                            });
+                                        }
+                                    } catch (error) {
+                                        console.error('Emulator start error:', error);
+                                        dialog.showMessageBox(this.mainWindow, {
+                                            type: 'error',
+                                            title: 'Emulator Error',
+                                            message: `Failed to start emulator: ${error instanceof Error ? error.message : 'Unknown error'}`
+                                        });
+                                    }
+                                }
+                            },
+                            {
+                                label: ' iPhone 16 Pro',
+                                click: () => {
+                                    dialog.showMessageBox(this.mainWindow, {
+                                        type: 'info',
+                                        title: 'Coming Soon',
+                                        message: 'iPhone emulation support is coming soon!'
+                                    });
+                                }
+                            }
+                        ]
+                    }
+                ]
             },
             {
                 label: 'Bookmarks',

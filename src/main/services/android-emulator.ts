@@ -23,28 +23,34 @@ export class AndroidEmulatorService {
         this.isStarting = true;
     
         try {
-            // Start emulator with arguments to remove window decorations
+            // First, ensure ADB server is running
+            await this.executeAdbCommand(['start-server']);
+            
+            // Updated emulator arguments with correct flags
             const emulatorArgs = [
                 '-avd', deviceName,
                 '-gpu', 'host',
                 '-no-boot-anim',
-                '-no-title',           // Remove title bar
-                '-no-frame',           // Remove window frame
-                '-no-skin',            // Remove default emulator skin
-                '-skindir', 'none'     // Disable skin directory
             ];
     
             console.log('Starting emulator with args:', emulatorArgs);
             this.emulatorProcess = spawn(androidConfig.emulatorPath, emulatorArgs);
     
-            // Wait for emulator to start, then set its window properties
+            // Add error logging for emulator process
+            this.emulatorProcess.stderr?.on('data', (data) => {
+                console.error('Emulator stderr:', data.toString());
+            });
+    
+            // Wait for 5 seconds to let the emulator initialize
+            await new Promise(resolve => setTimeout(resolve, 5000));
+    
+            // Rest of the method remains the same...
             const isBooted = await this.waitForBoot();
             if (isBooted) {
                 const emulatorWindow = this.findEmulatorWindow();
                 if (emulatorWindow) {
-                    // Make emulator window borderless and the right size
                     emulatorWindow.setWindowButtonVisibility(false);
-                    emulatorWindow.setContentSize(1280, 2800); // Adjust height as needed
+                    emulatorWindow.setContentSize(1280, 2800);
                     emulatorWindow.setResizable(false);
                 }
             }
@@ -63,23 +69,38 @@ export class AndroidEmulatorService {
         return new Promise((resolve) => {
             let bootCheckInterval = setInterval(async () => {
                 try {
+                    // Check if emulator process exists and exited
+                    if (this.emulatorProcess && this.emulatorProcess.exitCode !== null) {
+                        console.error(`Emulator process exited with code ${this.emulatorProcess.exitCode}`);
+                        clearInterval(bootCheckInterval);
+                        resolve(false);
+                        return;
+                    }
+    
+                    const devices = await this.executeAdbCommand(['devices']);
+                    console.log('Current ADB devices:', devices);
+    
+                    if (!devices.includes('emulator-')) {
+                        console.log('Waiting for emulator to appear in ADB...');
+                        return;
+                    }
+    
                     const result = await this.executeAdbCommand(['shell', 'getprop', 'sys.boot_completed']);
                     if (result.trim() === '1') {
                         clearInterval(bootCheckInterval);
-                        console.log('Emulator boot completed');
+                        console.log('Emulator boot completed successfully');
                         resolve(true);
                     }
                 } catch (error) {
-                    console.error('Boot check failed:', error);
+                    console.log('Boot check cycle error:', error);
                 }
-            }, 1000);
-
-            // Timeout after 2 minutes
+            }, 3000);
+    
             setTimeout(() => {
                 clearInterval(bootCheckInterval);
-                console.error('Emulator boot timeout');
+                console.error('Emulator boot timeout after 3 minutes');
                 resolve(false);
-            }, 120000);
+            }, 180000);
         });
     }
 
@@ -88,17 +109,32 @@ export class AndroidEmulatorService {
         return new Promise((resolve, reject) => {
             const process = spawn(androidConfig.adbPath, args);
             let output = '';
-
+            let errorOutput = '';
+    
             process.stdout.on('data', (data) => {
                 output += data.toString();
             });
-
+    
+            process.stderr.on('data', (data) => {
+                errorOutput += data.toString();
+                console.error(`ADB stderr: ${data}`);
+            });
+    
             process.on('close', (code) => {
+                console.log(`ADB command completed with code ${code}`);
+                console.log('Output:', output);
+                if (errorOutput) console.error('Error output:', errorOutput);
+                
                 if (code === 0) {
                     resolve(output);
                 } else {
-                    reject(new Error(`ADB command failed with code ${code}`));
+                    reject(new Error(`ADB command failed with code ${code}. Error: ${errorOutput}`));
                 }
+            });
+    
+            process.on('error', (error) => {
+                console.error('ADB process error:', error);
+                reject(error);
             });
         });
     }
