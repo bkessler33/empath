@@ -1,4 +1,5 @@
-import { app, BrowserWindow, ipcMain, screen } from 'electron';  // Add screen to imports
+import { app, BrowserWindow, ipcMain, screen } from 'electron';
+import { exec } from 'child_process';
 import * as path from 'path';
 import { AndroidEmulatorService } from './services/android-emulator';
 import { MenuService } from './services/menu';
@@ -51,24 +52,40 @@ function createWindow() {
     // Track window movement to sync emulator window
     mainWindow.on('move', () => {
         const [x, y] = mainWindow.getPosition();
-        emulatorService.positionEmulatorWindow(x, y + toolbarHeight + 10); // Added 10px gap
+        if (emulatorService.scrcpyProcess) {
+            // Use scrcpy's command-line interface to move the window
+            const toolbarHeight = 60;
+            const gap = 10;
+            exec(`osascript -e 'tell application "System Events" to tell process "scrcpy" to set position of window 1 to {${x}, ${y + toolbarHeight + gap}}'`);
+        }
+    });
+    
+    mainWindow.on('show', () => {
+        if (emulatorService.scrcpyProcess) {
+            const [x, y] = mainWindow.getPosition();
+            const toolbarHeight = 60;
+            const gap = 10;
+            exec(`osascript -e 'tell application "System Events" to tell process "scrcpy" to set position of window 1 to {${x}, ${y + toolbarHeight + gap}}'`);
+        }
     });
 
     // Handle window state changes
     mainWindow.on('minimize', () => {
-        const emulatorWindow = emulatorService.findEmulatorWindow();
-        if (emulatorWindow) {
-            emulatorWindow.minimize();
+        if (emulatorService.scrcpyProcess) {
+            // Minimize scrcpy window
+            exec(`osascript -e 'tell application "System Events" to tell process "scrcpy" to set visible of window 1 to false'`);
         }
     });
-
+    
     mainWindow.on('restore', () => {
-        const emulatorWindow = emulatorService.findEmulatorWindow();
-        if (emulatorWindow) {
-            emulatorWindow.restore();
+        if (emulatorService.scrcpyProcess) {
+            // Restore scrcpy window
+            exec(`osascript -e 'tell application "System Events" to tell process "scrcpy" to set visible of window 1 to true'`);
             // Re-sync position after restore
             const [x, y] = mainWindow.getPosition();
-            emulatorService.positionEmulatorWindow(x, y + toolbarHeight + 10);
+            const toolbarHeight = 60;
+            const gap = 10;
+            exec(`osascript -e 'tell application "System Events" to tell process "scrcpy" to set position of window 1 to {${x}, ${y + toolbarHeight + gap}}'`);
         }
     });
 
@@ -113,9 +130,13 @@ app.whenReady().then(() => {
             const success = await emulatorService.startEmulator();
             
             if (success) {
-                // Position the emulator window after startup
+                // Set initial position after startup
                 const [x, y] = mainWindow.getPosition();
-                await emulatorService.positionEmulatorWindow(x, y);
+                const toolbarHeight = 60;
+                const gap = 10;
+                if (emulatorService.scrcpyProcess) {
+                    exec(`osascript -e 'tell application "System Events" to tell process "scrcpy" to set position of window 1 to {${x}, ${y + toolbarHeight + gap}}'`);
+                }
             }
             
             return { success };
@@ -123,7 +144,7 @@ app.whenReady().then(() => {
             console.error('Error starting emulator:', err);
             return { success: false, error: err instanceof Error ? err.message : String(err) };
         }
-    });
+    })
 
     ipcMain.handle('stop-emulator', async () => {
         try {

@@ -1,4 +1,4 @@
-import { spawn, ChildProcess } from 'child_process';
+import { spawn, ChildProcess, exec } from 'child_process';
 import { androidConfig } from '../config/android-config';
 import { app, BrowserWindow } from 'electron';
 import path from 'path';
@@ -6,6 +6,7 @@ import { promises as fs } from 'fs';
 
 export class AndroidEmulatorService {
     private emulatorProcess: ChildProcess | null = null;
+    public scrcpyProcess: ChildProcess | null = null;
     private recordingProcess: ChildProcess | null = null;
     private isStarting: boolean = false;
     private recordingStartTime: number | null = null;
@@ -26,37 +27,46 @@ export class AndroidEmulatorService {
             // First, ensure ADB server is running
             await this.executeAdbCommand(['start-server']);
             
-            // Updated emulator arguments with correct flags
+            // Kill any existing emulator instances first
+            try {
+                await this.executeAdbCommand(['emu', 'kill']);
+                // Wait a moment for the process to fully close
+                await new Promise(resolve => setTimeout(resolve, 2000));
+            } catch (error) {
+                console.log('No existing emulator to kill, proceeding...');
+            }
+            
             const emulatorArgs = [
                 '-avd', deviceName,
                 '-gpu', 'host',
                 '-no-boot-anim',
+                '-no-window',
+                '-read-only'  // Add this flag to allow multiple instances
             ];
     
             console.log('Starting emulator with args:', emulatorArgs);
             this.emulatorProcess = spawn(androidConfig.emulatorPath, emulatorArgs);
     
-            // Add error logging for emulator process
+            this.emulatorProcess.stdout?.on('data', (data) => {
+                console.log('Emulator stdout:', data.toString());
+            });
+    
             this.emulatorProcess.stderr?.on('data', (data) => {
                 console.error('Emulator stderr:', data.toString());
             });
     
-            // Wait for 5 seconds to let the emulator initialize
-            await new Promise(resolve => setTimeout(resolve, 5000));
-    
-            // Rest of the method remains the same...
+            // Wait for emulator to boot
             const isBooted = await this.waitForBoot();
-            if (isBooted) {
-                const emulatorWindow = this.findEmulatorWindow();
-                if (emulatorWindow) {
-                    emulatorWindow.setWindowButtonVisibility(false);
-                    emulatorWindow.setContentSize(1280, 2800);
-                    emulatorWindow.setResizable(false);
-                }
+            if (!isBooted) {
+                throw new Error('Emulator failed to boot');
             }
     
+            // Start scrcpy after emulator is booted
+            await this.startScrcpy();
+            await this.manageWindowOrder();  // Add this line
+    
             this.isStarting = false;
-            return isBooted;
+            return true;
     
         } catch (error) {
             console.error('Failed to start emulator:', error);
@@ -64,6 +74,55 @@ export class AndroidEmulatorService {
             return false;
         }
     }
+    
+    private scrcpyWindowId: string | null = null;  // Add this property
+
+    private async startScrcpy(): Promise<boolean> {
+        try {
+            const deviceWidth = 412;
+            const deviceHeight = 915;
+            const scale = androidConfig.defaultScale;
+    
+            // Calculate initial position based on toolbar position
+            const toolbarBounds = BrowserWindow.getFocusedWindow()?.getBounds() || { x: 0, y: 0 };
+            const toolbarHeight = 60;
+            const gap = 10;
+    
+            const scrcpyArgs = [
+                '--window-title', androidConfig.scrcpy.defaults.windowTitle,
+                '--video-bit-rate', '8M',  // Standard format for bit rate
+                '--max-fps', '60',
+                '--window-borderless',
+                '--window-width', Math.round(deviceWidth * scale).toString(),
+                '--window-height', Math.round(deviceHeight * scale).toString(),
+                '--window-x', toolbarBounds.x.toString(),
+                '--window-y', (toolbarBounds.y + toolbarHeight + gap).toString(),
+                '--render-driver', 'metal',
+                '--stay-awake',    // Keep device awake
+                '--power-off-on-close',  // Turn screen off when closing
+                // Remove --no-control to allow interaction
+                // Remove --always-on-top as we'll manage window order differently
+            ];
+    
+            console.log('Starting scrcpy with args:', scrcpyArgs);
+            this.scrcpyProcess = spawn(androidConfig.scrcpy.binaryPath, scrcpyArgs, {
+                env: process.env,
+                stdio: 'pipe'
+            });
+    
+            // ... (rest of the event handlers)
+    
+            // Wait for window creation
+            await new Promise(resolve => setTimeout(resolve, 2000));
+    
+            return true;
+        } catch (error) {
+            console.error('Failed to start scrcpy:', error);
+            return false;
+        }
+    }
+
+    
 
     private async waitForBoot(): Promise<boolean> {
         return new Promise((resolve) => {
@@ -104,6 +163,21 @@ export class AndroidEmulatorService {
         });
     }
 
+    private async manageWindowOrder(): Promise<void> {
+        if (process.platform === 'darwin') {
+            // Simple shell command to hide dock icon
+            exec('defaults write com.genymobile.scrcpy LSUIElement -bool true');
+            
+            // Use a basic AppleScript just to set window order
+            const script = `
+                tell application "System Events"
+                    set the frontmost of process "Empath" to true
+                end tell
+            `;
+            exec(`osascript -e '${script}'`);
+        }
+    }
+
     async executeAdbCommand(args: string[]): Promise<string> {
         console.log('Executing ADB command:', args.join(' '));
         return new Promise((resolve, reject) => {
@@ -137,26 +211,7 @@ export class AndroidEmulatorService {
                 reject(error);
             });
         });
-    }
-
-    findEmulatorWindow(): BrowserWindow | null {
-        const allWindows = BrowserWindow.getAllWindows();
-        const emulatorWindow = allWindows.find(win => {
-            const title = win.getTitle();
-            return title.includes('Android Emulator') || title.includes('Pixel');
-        });
-        return emulatorWindow || null;
-    }
-
-    async positionEmulatorWindow(parentX: number, parentY: number): Promise<void> {
-        const emulatorWindow = this.findEmulatorWindow();
-        if (emulatorWindow) {
-            // Position window and ensure it's borderless
-            emulatorWindow.setPosition(parentX, parentY);
-            emulatorWindow.setWindowButtonVisibility(false);
-            emulatorWindow.setAlwaysOnTop(false); // Ensure it stays under the toolbar
-        }
-    }
+    }    
 
     async stopEmulator(): Promise<void> {
         if (this.recordingProcess) {
@@ -165,6 +220,13 @@ export class AndroidEmulatorService {
             } catch (error) {
                 console.error('Error stopping recording during emulator shutdown:', error);
             }
+        }
+
+        // Stop scrcpy first
+        if (this.scrcpyProcess) {
+            console.log('Stopping scrcpy...');
+            this.scrcpyProcess.kill();
+            this.scrcpyProcess = null;
         }
 
         if (this.emulatorProcess) {
@@ -186,7 +248,6 @@ export class AndroidEmulatorService {
             console.log('Checking if emulator is running...');
             const devices = await this.executeAdbCommand(['devices']);
             console.log('ADB devices output:', devices);
-            // Look for 'emulator-' instead of just 'emulator'
             const isRunning = devices.includes('emulator-');
             console.log('Is emulator running?', isRunning, 'Raw devices output:', devices);
             return isRunning;
@@ -198,7 +259,6 @@ export class AndroidEmulatorService {
 
     async takeScreenshot(): Promise<{ success: boolean; path?: string; error?: string }> {
         try {
-            // Check if emulator is running first
             const isRunning = await this.isEmulatorRunning();
             if (!isRunning) {
                 return {
@@ -209,7 +269,6 @@ export class AndroidEmulatorService {
     
             const desktopPath = app.getPath('desktop');
             
-            // Create filename: empath_YYYYMMDD_HHMMSS.png
             const now = new Date();
             const timestamp = now.toISOString()
                 .replace(/[-:]/g, '')
@@ -218,7 +277,6 @@ export class AndroidEmulatorService {
             const filename = `empath_${timestamp}.png`;
             const outputPath = path.join(desktopPath, filename);
     
-            // Take the screenshot using adb and get raw data
             const process = spawn(androidConfig.adbPath, ['exec-out', 'screencap', '-p']);
             
             return new Promise((resolve, reject) => {
@@ -276,7 +334,6 @@ export class AndroidEmulatorService {
 
     async startRecording(): Promise<{ success: boolean; path?: string; error?: string }> {
         try {
-            // Check if emulator is running
             const isRunning = await this.isEmulatorRunning();
             if (!isRunning) {
                 return {
@@ -285,7 +342,6 @@ export class AndroidEmulatorService {
                 };
             }
 
-            // Check if already recording
             if (this.recordingProcess) {
                 return {
                     success: false,
@@ -293,15 +349,13 @@ export class AndroidEmulatorService {
                 };
             }
 
-            // Using 8Mbps bitrate for good quality
             const args = [
                 'shell', 
                 'screenrecord',
-                '--bit-rate', '8000000',  // 8 Mbps
+                '--bit-rate', '8000000',
                 '/sdcard/recording.mp4'
             ];
 
-            // Start recording
             this.recordingProcess = spawn(androidConfig.adbPath, args);
             this.recordingStartTime = Date.now();
 
@@ -315,7 +369,6 @@ export class AndroidEmulatorService {
                 this.recordingStartTime = null;
             });
 
-            // Wait a bit to ensure recording started successfully
             await new Promise(resolve => setTimeout(resolve, 1000));
 
             if (this.recordingProcess?.killed) {
@@ -347,13 +400,10 @@ export class AndroidEmulatorService {
                 };
             }
 
-            // Send SIGINT to stop recording gracefully
             this.recordingProcess.kill('SIGINT');
 
-            // Wait for the process to finish
             await new Promise(resolve => setTimeout(resolve, 1500));
 
-            // Create output path with same naming convention as screenshots
             const now = new Date();
             const timestamp = now.toISOString()
                 .replace(/[-:]/g, '')
@@ -362,13 +412,9 @@ export class AndroidEmulatorService {
             const filename = `empath_${timestamp}.mp4`;
             const outputPath = path.join(app.getPath('desktop'), filename);
 
-            // Pull the recording from device to desktop
             await this.executeAdbCommand(['pull', '/sdcard/recording.mp4', outputPath]);
-
-            // Clean up the file on device
             await this.executeAdbCommand(['shell', 'rm', '/sdcard/recording.mp4']);
 
-            // Reset recording state
             this.recordingProcess = null;
             this.recordingStartTime = null;
 
